@@ -8,13 +8,16 @@
 - __Setting it up as a bash function__: You can add the following code to your bashrc or zshrc file. It defines makes this submissions script accessible in your terminal!
     ```
     submit_job(){
+        <PATH_TO_WHERE_THIS_REPO_IS_CLONED>/submit_job.py
         ${HOME}/.dotfiles/job_submission/submit_job.py $*
     }
 
     report_job(){
-        ${HOME}/.dotfiles/job_submission/report_job.py $*
+        <PATH_TO_WHERE_THIS_REPO_IS_CLONED>/report_job.py $*
     }
     ```
+
+    Remember to replace `<PATH_TO_WHERE_THIS_REPO_IS_CLONED>` with the actual path to where you cloned this repo. For example, I clone this repo at `~/.dotfiles/job_submission`, which means I use `${HOME}/.dotfiles/job_submission/` for the path above.
 
 ### Submitting a generic job
 
@@ -51,7 +54,7 @@ It automatically detects the cluster you're on, sets the default arguments for t
 - `<JOB_SUBMISSION_ARGS>` are the arguments to the job submission script itself ([submit_job.py](submit_job.py)). Here is the list of supported arguments:
     - `--script <path>`: specifies the worker script. default: [_run_python.sh](batch_job_files/_run_python.sh)
 - `<SLURM_ARGS>` are SLURM arguments. These commands are directly passed to the `sbatch` command (see [here](https://slurm.schedmd.com/sbatch.html) for the list of sbatch arguments). Additionally, This script supports the following config aliases:
-    - `--cores <N>` (alias for `--ntasks-per-node`): specifies the number of CPU cores needed.
+    - `--cores <N>` (alias for `--cpus-per-task`): specifies the number of CPU cores needed.
     - `--gpu <N>` (alias for `--gres=gpu:<N>`): specifies the number of GPUs needed.
 
     Here is a list of frequently used SLURM arguments:
