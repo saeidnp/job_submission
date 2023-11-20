@@ -1,0 +1,40 @@
+{
+  "__all__": {
+  },
+  "plai": {
+    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
+    "--mail-type":  "ALL",
+    "--time":       "12:00:00",
+    "--partition":  "plai"
+  },
+  "submit-ml": {
+    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
+    "--mail-type":  "ALL",
+    "--time":       "12:00:00",
+    "--partition":  "ubcml"
+  },
+  "cedar": {
+    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
+    "--mail-type":  "ALL",
+    "--time":       "12:00:00",
+    "--account":    "rrg-fwood"
+  },
+  "narval": {
+    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
+    "--mail-type":  "ALL",
+    "--time":       "12:00:00",
+    "--account":    "rrg-fwood"
+  },
+  "beluga": {
+    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
+    "--mail-type":  "ALL",
+    "--time":       "12:00:00",
+    "--account":    "rrg-kevinlb"
+  },
+  "arc": {
+    "-A":           "st-fwood-1-gpu",
+    "-m":           "abe",
+    "-M":           "<YOUR_EMAIL_GOES_HERE>",
+    "-l":           "select=1:ncpus=1:ngpus=1:mem=4gb,walltime=12:00:00"
+  }
+}
