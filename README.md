@@ -8,7 +8,7 @@
 - __Setting it up as a bash function__: You can add the following code to your bashrc or zshrc file. It defines makes this submissions script accessible in your terminal!
     ```
     submit_job(){
-        <PATH_TO_WHERE_THIS_REPO_IS_CLONED>/submit_job.py
+        <PATH_TO_WHERE_THIS_REPO_IS_CLONED>/submit_job.py $*
     }
 
     report_job(){
