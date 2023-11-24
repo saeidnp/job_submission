@@ -9,7 +9,6 @@
     ```
     submit_job(){
         <PATH_TO_WHERE_THIS_REPO_IS_CLONED>/submit_job.py
-        ${HOME}/.dotfiles/job_submission/submit_job.py $*
     }
 
     report_job(){
@@ -17,7 +16,7 @@
     }
     ```
 
-    Remember to replace `<PATH_TO_WHERE_THIS_REPO_IS_CLONED>` with the actual path to where you cloned this repo. For example, I clone this repo at `~/.dotfiles/job_submission`, which means I use `${HOME}/.dotfiles/job_submission/` for the path above.
+    Remember to replace `<PATH_TO_WHERE_THIS_REPO_IS_CLONED>` with the actual path to where you cloned this repo. For example, I clone this repo at `~/.dotfiles/job_submission`, which means I use `${HOME}/.dotfiles/job_submission/` for the path above. To make the changes take effect, run `source ~/.bashrc` or `source ~/.zshrc` depending on which shell you use. Alternatively, you can log out and log back in again.
 
 ### Submitting a generic job
 
