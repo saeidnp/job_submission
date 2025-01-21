@@ -485,6 +485,7 @@ def default_scheduler_args(cluster_name):
                 "The email address is not set in {} and was not set as an "
                 "enironment variable in _MY_SCHEDULER_EMAIL".format(config_file_path)
             )
+        DEFAULT_SCHEDULER_ARGS["--mail-user"] = mail_adr
     return DEFAULT_SCHEDULER_ARGS
 
 
