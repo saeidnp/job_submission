@@ -54,9 +54,7 @@ def get_cluster_name():
         str: Cluster name
     """
     retcode, hostname = subprocess.getstatusoutput("dnsdomainname")
-    if retcode == 0 and hostname == "sockeye.arc.ubc.ca":
-        cluster = "arc"
-    elif hostname.endswith("narval.calcul.quebec"):
+    if hostname.endswith("narval.calcul.quebec"):
         cluster = "narval"
     elif hostname.endswith(".calculquebec.ca"):
         cluster = "beluga"
@@ -70,6 +68,8 @@ def get_cluster_name():
                 cluster = "cedar"
             elif "ubc-ml[" in slurm_nodes:
                 cluster = "submit-ml"
+            elif "se[" in slurm_nodes:
+                cluster = "arc"
             else:
                 raise Exception(
                     "Unexpected SLURM nodes. Make sure you are on either of borg (UBC), arc (UBC), submit-ml (UBC) cedar (ComputeCanada), narval (ComputeCanada), or beluga (ComputeCanada)."
@@ -289,7 +289,6 @@ class SLURMHandler(SchedulerHandler):
         super().__init__(*args, **kwargs)
         self.submisison_command = "sbatch"
         self.submit_job_script = ROOT_DIR / "_run.sh"
-        # Take out the job submission arguments not for slurm ([--array-tag])
         assert (
             self.submit_job_script.exists()
         ), "Missing SLURM run sctipt at {}.".format(self.submit_job_script)
