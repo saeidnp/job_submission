@@ -415,8 +415,8 @@ class PBSHandler(SchedulerHandler):
 
 def get_scheduler_handler(cluster_name, scheduler_args, scheduler_flags):
     scheduler_machine_names = {
-        "SLURM": ["plai", "submit-ml", "cedar", "narval", "beluga"],
-        "PBS": ["arc"],
+        "SLURM": ["plai", "submit-ml", "cedar", "narval", "beluga", "arc"],
+        "PBS": [],
     }
     # Add default arguments (if not already set by the user in command-line)
     updated_args = default_scheduler_args(cluster_name=cluster_name)
