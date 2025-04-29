@@ -70,6 +70,8 @@ def get_cluster_name():
                 cluster = "submit-ml"
             elif "se[" in slurm_nodes:
                 cluster = "arc"
+            elif "rack" in slurm_nodes:
+                cluster = "vulcan"
             else:
                 raise Exception(
                     "Unexpected SLURM nodes. Make sure you are on either of borg (UBC), arc (UBC), submit-ml (UBC) cedar (ComputeCanada), narval (ComputeCanada), or beluga (ComputeCanada)."
