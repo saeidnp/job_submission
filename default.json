@@ -48,6 +48,12 @@
     "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
     "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
     "--time":       "12:00:00",
+    "--account":    "rrg-fwood"
+  },
+  "fir": {
+    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
+    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
+    "--time":       "12:00:00",
     "--account":    "rrg-kevinlb"
   }
 }

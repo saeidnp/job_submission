@@ -60,6 +60,8 @@ def get_cluster_name():
         cluster = "beluga"
     elif hostname.endswith(".calcul.quebec"):
         cluster = "rorqual"
+    elif hostname.endswith(".fir.alliancecan.ca"):
+        cluster = "fir"
     else:
         retcode, slurm_nodes = subprocess.getstatusoutput("sinfo -h -o %N")
         cluster = None
@@ -419,7 +421,7 @@ class PBSHandler(SchedulerHandler):
 
 def get_scheduler_handler(cluster_name, scheduler_args, scheduler_flags):
     scheduler_machine_names = {
-        "SLURM": ["plai", "submit-ml", "cedar", "narval", "beluga", "arc", "vulcan", "rorqual"],
+        "SLURM": ["plai", "submit-ml", "cedar", "narval", "beluga", "arc", "vulcan", "rorqual", "fir"],
         "PBS": [],
     }
     # Add default arguments (if not already set by the user in command-line)
