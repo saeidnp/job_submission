@@ -76,6 +76,8 @@ def get_cluster_name():
                 cluster = "arc"
             elif "rack" in slurm_nodes:
                 cluster = "vulcan"
+            elif "trig[" in slurm_nodes:
+                cluster = "trillium"
             else:
                 raise Exception(
                     "Unexpected SLURM nodes. Make sure you are on either of borg (UBC), arc (UBC), submit-ml (UBC) cedar (ComputeCanada), narval (ComputeCanada), or beluga (ComputeCanada)."
@@ -421,7 +423,7 @@ class PBSHandler(SchedulerHandler):
 
 def get_scheduler_handler(cluster_name, scheduler_args, scheduler_flags):
     scheduler_machine_names = {
-        "SLURM": ["plai", "submit-ml", "cedar", "narval", "beluga", "arc", "vulcan", "rorqual", "fir"],
+        "SLURM": ["plai", "submit-ml", "cedar", "narval", "beluga", "arc", "vulcan", "rorqual", "fir", "trillium"],
         "PBS": [],
     }
     # Add default arguments (if not already set by the user in command-line)
