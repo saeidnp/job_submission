@@ -34,7 +34,13 @@ substring that could coincidentally appear elsewhere), list the more specific/re
 and/or rule earlier in the file.
 
 Arguments:
---script: used to change the default worker script. The scripts should be placed under ROOT_DIR directory e.g. <ROOT_DIR>/_run_python.sh
+--script: used to change the default worker script (default: _run.sh at this repo's root).
+  The given path is tried relative to ROOT_DIR first, then relative to the experiment directory
+  (cwd) if not found there -- so a project-local worker script works too, not just one that lives
+  inside this shared repo.
+--local: runs the worker command directly (via os.system), skipping SLURM entirely.
+--dry-run: prints what would be submitted (or run locally, if combined with --local) and exits
+  without actually submitting/running anything.
 Useful SLURM options (and SLURM option aliases):
 --cores <N>: specifies the number of CPU cores needed
 --gpu <N>: specifies the number of GPUs needed
@@ -176,6 +182,9 @@ class SLURMHandler:
         self.args = args
         self.flags = flags
         self.resolve_multi_args()
+        self.dry_run = "--dry-run" in self.flags
+        if self.dry_run:
+            self.flags.remove("--dry-run")
         self.local = False
         if "--local" in self.flags:
             self.flags.remove("--local")
@@ -193,7 +202,8 @@ class SLURMHandler:
             ), "Missing SLURM run script at {}.".format(self.submit_job_script)
             # Provide log file paths to the scheduler (if not already set by the user in command-line)
             self.set_logging_paths()
-            if not self.reports_dir.exists():
+            # A dry run shouldn't have any side effects, including creating this directory.
+            if not self.dry_run and not self.reports_dir.exists():
                 self.reports_dir.mkdir(exist_ok=True)
 
     def verify_args(self):
@@ -205,7 +215,23 @@ class SLURMHandler:
                 )
             )
         if "--script" in self.args:
-            self.submit_job_script = ROOT_DIR / self.args.pop("--script")
+            script_path = self.args.pop("--script")
+            # Try relative to this repo's own directory first (the historical/default behaviour,
+            # and where an absolute path resolves regardless), then fall back to the experiment
+            # directory (cwd) -- lets a worker script live next to a project's own code instead of
+            # inside this shared repo.
+            root_candidate = ROOT_DIR / script_path
+            exp_candidate = EXP_DIR / script_path
+            if root_candidate.exists():
+                self.submit_job_script = root_candidate
+            elif exp_candidate.exists():
+                self.submit_job_script = exp_candidate
+            else:
+                raise FileNotFoundError(
+                    "Worker script {!r} not found (checked {} and {}).".format(
+                        script_path, root_candidate, exp_candidate
+                    )
+                )
 
     def resolve_aliases(self):
         if "--cores" in self.args:
@@ -255,11 +281,17 @@ class SLURMHandler:
         print(self.get_output_line(script_args_str))
 
     def submit(self, script_args, verbose=False):
+        script_args_str = " ".join(script_args)
         if self.local:
-            os.system(" ".join(script_args))
+            if self.dry_run:
+                print(self.get_header("Dry run"))
+                print(self.get_output_line("Would run locally", script_args_str))
+                print(self.get_output_line("Job was NOT run"))
+                print(self.get_header(None))
+                return 0
+            os.system(script_args_str)
         else:
             # Get all arguments in string format
-            script_args_str = " ".join(script_args)
             scheduler_args_str = " ".join(
                 "{} {}".format(k, v) for (k, v) in self.args.items()
             )
@@ -283,8 +315,13 @@ class SLURMHandler:
                     str(self.submit_job_script),
                 ]
             )
-            if verbose:
+            if verbose or self.dry_run:
                 print(cmd)
+            if self.dry_run:
+                print(self.get_header("Dry run"))
+                print(self.get_output_line("Job was NOT submitted"))
+                print(self.get_header(None))
+                return 0
             os.putenv("_MY_SCHEDULER_CMD", cmd)
             os.putenv("_MY_BATCH_JOB", "1")
             proc = subprocess.Popen(
@@ -466,6 +503,21 @@ def arglist2dicts(arg_list):
     """
     args = {}
     flags = []
+
+    def add_arg(k, v):
+        # Note: this only catches the same flag appearing twice in THIS arg_list (i.e. actually
+        # repeated on the command line). A scalar value colliding with a default.json default is
+        # a separate, expected code path (see get_scheduler_handler) and does not warn here.
+        if k in args:
+            print(
+                "Warning: {} was passed more than once on the command line ({!r} then {!r}); "
+                "the last value will be used.".format(k, args[k], v),
+                file=sys.stderr,
+            )
+            args[k] = args[k] + [v] if isinstance(args[k], list) else [args[k], v]
+        else:
+            args[k] = v
+
     i = 0
     while i < len(arg_list):
         cur_arg = arg_list[i]
@@ -474,10 +526,7 @@ def arglist2dicts(arg_list):
         if "=" in cur_arg:
             # It's an argument name and value with an equal sign in between
             k, v = cur_arg.split("=", maxsplit=1)
-            if k in args:
-                args[k] = args[k] + [v] if isinstance(args[k], list) else [args[k], v]
-            else:
-                args[k] = v
+            add_arg(k, v)
             i += 1
         elif i + 1 >= len(arg_list) or arg_list[i + 1].startswith("-"):
             # It's a flag
@@ -485,11 +534,7 @@ def arglist2dicts(arg_list):
             i += 1
         else:
             # It's an argument name and requires a value
-            k, v = cur_arg, arg_list[i + 1]
-            if k in args:
-                args[k] = args[k] + [v] if isinstance(args[k], list) else [args[k], v]
-            else:
-                args[k] = v
+            add_arg(cur_arg, arg_list[i + 1])
             i += 2
     return args, flags
 

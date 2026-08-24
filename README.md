@@ -51,7 +51,9 @@ submit_job <JOB_SUBMISSION_ARGS> <SLURM_ARGS> -- <WORKER_ARGS>
 ```
 It automatically detects the cluster you're on (based on the `detect` rule declared for each cluster in [default.json](default.json)), sets the default arguments for that cluster, and submits a SLURM job that runs [`_run.sh`](_run.sh) (we call that the "worker script") with `<WORKER_ARGS>` carried over to it.
 - `<JOB_SUBMISSION_ARGS>` are the arguments to the job submission script itself ([submit_job.py](submit_job.py)). Here is the list of supported arguments:
-    - `--script <path>`: specifies an alternative worker script to use instead of the default [`_run.sh`](_run.sh). `<path>` is resolved relative to this repo's own directory (where `submit_job.py` lives), not your current working directory.
+    - `--script <path>`: specifies an alternative worker script to use instead of the default [`_run.sh`](_run.sh). `<path>` is tried relative to this repo's own directory (where `submit_job.py` lives) first, then relative to your current working directory if not found there.
+    - `--local`: runs the worker command directly on the current machine (via `os.system`), instead of submitting it to SLURM. Useful for testing the worker command itself.
+    - `--dry-run`: prints the SLURM arguments and the exact command that would be submitted (or run locally, if combined with `--local`), then exits without actually submitting/running anything.
 - `<SLURM_ARGS>` are SLURM arguments. These commands are directly passed to the `sbatch` command (see [here](https://slurm.schedmd.com/sbatch.html) for the list of sbatch arguments). Additionally, This script supports the following config aliases:
     - `--cores <N>` (alias for `--cpus-per-task`): specifies the number of CPU cores needed.
     - `--gpu <N>` (alias for `--gres=gpu:<N>`): specifies the number of GPUs needed.
