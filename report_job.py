@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
 
 from argparse import ArgumentParser
+from datetime import datetime
 import json
 from pprint import pprint
 from submit_job import CMD_REPORT_FILE, get_cluster_name
+
+
+def read_records(cluster_name):
+    """Yields every cmd_report.jsonl record for the given cluster, oldest first (i.e. in the
+    order they were appended -- submission order).
+    """
+    if not CMD_REPORT_FILE.exists():
+        return
+    with open(CMD_REPORT_FILE, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            if record.get("cluster") == cluster_name:
+                yield record
 
 
 if __name__ == "__main__":
@@ -13,6 +30,18 @@ if __name__ == "__main__":
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--cmd", action="store_true")
     parser.add_argument("-n", type=int, default=None)
+    parser.add_argument(
+        "--name-contains",
+        type=str,
+        default=None,
+        help="With --list, only show jobs whose name contains this substring.",
+    )
+    parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        help="With --list, only show jobs submitted on/after this date (YYYY/MM/DD or YYYY-MM-DD).",
+    )
     opts = parser.parse_args()
     assert opts.job_id is not None or opts.list, "Must specify job id or --list"
     if opts.cmd:
@@ -21,34 +50,42 @@ if __name__ == "__main__":
 
     # Get the current cluster name
     cluster_name = get_cluster_name()
-    # Load the command reports file
-    with open(CMD_REPORT_FILE, "r") as f:
-        reports = json.load(f)
+    records = list(read_records(cluster_name))
 
     if opts.list:
         ## List all jobs submitted to this cluster ##
-        if cluster_name not in reports:
+        if opts.name_contains is not None:
+            records = [r for r in records if opts.name_contains in (r.get("name") or "")]
+        if opts.since is not None:
+            since_dt = datetime.strptime(opts.since.replace("-", "/"), "%Y/%m/%d")
+            records = [
+                r
+                for r in records
+                if datetime.strptime(r["submission_time"], "%Y/%m/%d %H:%M:%S") >= since_dt
+            ]
+        if not records:
             print("No jobs submitted to this cluster ({})".format(cluster_name))
-        if opts.n is None or opts.n <= 0:
-            to_print = reports[cluster_name]
-        else:
-            to_print = dict(list(reports[cluster_name].items())[-opts.n:])
-        pprint(to_print)
+        elif opts.n is not None and opts.n > 0:
+            records = records[-opts.n :]
+        pprint(records)
     else:
         ## Print the report of a specific job ##
-        if cluster_name not in reports or opts.job_id not in reports[cluster_name]:
+        # A job id can in principle be reused by SLURM after a long time; take the most recent
+        # match if there's more than one.
+        matches = [r for r in records if str(r.get("job_id")) == str(opts.job_id)]
+        if not matches:
             print(
                 "The job id {} under cluster {} is not found.".format(
                     opts.job_id, cluster_name
                 )
             )
             exit(1)
-        rep = reports[cluster_name][opts.job_id]
+        rep = matches[-1]
         if opts.cmd:
             ## Print the command for the job ##
             full_cmd = ["submit_job"]
-            for k,v in rep["scheduler_args"].items():
-                if k not in ["--main-user", "--mail-type", "--output"]:
+            for k, v in rep["scheduler_args"].items():
+                if k not in ["--mail-user", "--mail-type", "--output"]:
                     full_cmd.append(f"{k} {v}")
             full_cmd.append("--")
             full_cmd.append(rep["cmd"])
@@ -62,7 +99,6 @@ if __name__ == "__main__":
                     print("{:15} {}".format(field + ":", rep[field]))
                 else:
                     print("{:15} -----(Not found)-----".format(field + ":"))
-            rep = {k: v for k, v in rep.items() if k in opts.format}
         else:
             ## Print the whole report for the job ##
             pprint(rep)

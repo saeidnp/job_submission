@@ -66,7 +66,7 @@ VERBOSE = True if "SUBMIT_JOB_VERBOSE" in os.environ else False
 EXP_DIR = Path(os.getcwd())
 ROOT_DIR = Path(__file__).parent.absolute()
 CONFIG_FILE = ROOT_DIR / "default.json"
-CMD_REPORT_FILE = ROOT_DIR / "cmd_report.json"
+CMD_REPORT_FILE = ROOT_DIR / "cmd_report.jsonl"
 REPORTS_DIR = EXP_DIR / "batch_job_reports"
 
 _default_json_cache = None
@@ -349,20 +349,15 @@ class SLURMHandler:
             return returncode
 
     def update_cmd_report(self, script_args_str, jobid):
-        if not CMD_REPORT_FILE.exists():
-            reports = {}
-        else:
-            with open(CMD_REPORT_FILE, "r") as f:
-                reports = json.load(f)
-        if self.cluster_name not in reports:
-            reports[self.cluster_name] = {}
-        jobid = int(jobid)
-        if jobid in reports[self.cluster_name]:
-            print(
-                f"Error in updating the cmd reports: Job ID {jobid} already exists in the command report under cluster {self.cluster_name}."
-            )
-            return
-        new_report = {
+        """Appends a single-line JSON record for this submission to CMD_REPORT_FILE (a JSONL
+        log, one record per submitted job). Appending is the whole point: it never reads the
+        existing file, so there's no read-modify-write step and therefore no race between
+        concurrent submitters clobbering each other's record -- unlike the old single-JSON-blob
+        format this replaced.
+        """
+        record = {
+            "cluster": self.cluster_name,
+            "job_id": int(jobid),
             "name": self.get_job_name(),
             "cmd": script_args_str,
             "exp_dir": str(EXP_DIR),
@@ -370,9 +365,8 @@ class SLURMHandler:
             "scheduler_flags": self.flags,
             "submission_time": datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
         }
-        reports[self.cluster_name][jobid] = new_report
-        with open(CMD_REPORT_FILE, "w") as f:
-            json.dump(reports, f, indent=4)
+        with open(CMD_REPORT_FILE, "a") as f:
+            f.write(json.dumps(record) + "\n")
 
     @staticmethod
     def jobid_from_stdout(stdout, stderr):

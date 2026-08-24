@@ -37,11 +37,13 @@
 - The job outputs (both stdout and stderr) are logged in a directory called `batch_job_reports` in the working directory. This `batch_job_reports` directory will be created if it does not exist already. Each output file has the naming format of `results-<job_id>-<job_name>.out` for non-array jobs and `results-<job_id>_<array_index>-<job_name>.out` for array jobs.
 
 ### What command did I run for this job?
-Once a job is submitted successfully through `submit_job` and a job id is assigned to it by SLURM, it leaves a record in a json file stored where this repo is cloned (I clone this repo somewhere under `~/.dotfiles`). This record is a mapping from the job id to the job specifications. This specification includes the scheduler arguments (e.g. requested time, memory, etc.), script command, and submission time. You can run `report_job` to query this file.
+Once a job is submitted successfully through `submit_job` and a job id is assigned to it by SLURM, it appends a record to `cmd_report.jsonl`, a plain-text log stored where this repo is cloned (I clone this repo somewhere under `~/.dotfiles`) -- one JSON object per line, one line per submitted job (across all clusters and all experiment directories). Each record includes the cluster, job id, scheduler arguments (e.g. requested time, memory, etc.), script command, experiment directory, and submission time. Being append-only, it's also just a plain-text file you can `grep`/`tail` directly if you want. You can run `report_job` to query it more conveniently.
 
 - `report_job -j <JOB_ID>`: prints the full record information for the job with the specified job id.
 - `report_job -j <JOB_ID> --cmd`: prints only the script command that was run for the job with the specified job id.
-- `report_job --list -n <N>`: prints the last `N` jobs submitted.
+- `report_job --list -n <N>`: prints the last `N` jobs submitted (to the current cluster).
+- `report_job --list --name-contains <substr>`: only lists jobs whose name contains `<substr>`.
+- `report_job --list --since <YYYY-MM-DD>`: only lists jobs submitted on/after that date. Can be combined with `-n`/`--name-contains`.
 
 ## How it works (in more details)
 
