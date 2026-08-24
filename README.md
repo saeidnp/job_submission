@@ -44,6 +44,8 @@ Once a job is submitted successfully through `submit_job` and a job id is assign
 - `report_job --list -n <N>`: prints the last `N` jobs submitted (to the current cluster).
 - `report_job --list --name-contains <substr>`: only lists jobs whose name contains `<substr>`.
 - `report_job --list --since <YYYY-MM-DD>`: only lists jobs submitted on/after that date. Can be combined with `-n`/`--name-contains`.
+- `report_job -j <JOB_ID> --tail [N]`: prints the last `N` lines (default 20) of the job's SLURM output file, resolved automatically from its recorded `--output` pattern -- no need to work out the `results-<job_id>-<job_name>.out` filename by hand. For an array job (multiple per-task output files), lists the matching files instead of guessing which one you want.
+- `report_job -j <JOB_ID> --sacct`: shows what was requested at submission time next to `sacct`'s view of what actually happened (exit code, elapsed time, memory used, etc.).
 
 ## How it works (in more details)
 
