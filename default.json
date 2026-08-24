@@ -44,6 +44,14 @@
     ],
     "--account":    "rrg-kevinlb"
   },
+  "nibi": {
+    "detect": [
+      {"type": "cc_cluster"},
+      {"type": "scontrol_clustername"},
+      {"type": "hostname_suffix", "value": ".nibi.alliancecan.ca"}
+    ],
+    "--account":    "rrg-kevinlb"
+  },
   "killarney": {
     "detect": [
       {"type": "cc_cluster"},
