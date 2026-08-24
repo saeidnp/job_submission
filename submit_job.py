@@ -2,15 +2,36 @@
 
 """
 This script is used to submit batch jobs to a cluster using the SLURM scheduler.
-It provides a SchedulerHandler class that handles the job submission process.
-The script reads SLURM arguments from the command line and submits the job using the specified scheduler.
-It also provides methods for resolving argument aliases, setting logging paths, exporting environment variables,
-and updating the command report file.
-
-The SchedulerHandler class is a base class that can be extended to support different schedulers.
-The SLURMHandler class is a subclass of SchedulerHandler that specifically handles SLURM job submission.
+It provides a SLURMHandler class that handles the job submission process, resolving argument
+aliases, setting logging paths, exporting environment variables, and updating the command
+report file.
 
 The script also defines helper functions for printing headers and output lines in a pretty format.
+
+Cluster identification:
+The current cluster is identified by evaluating the per-cluster `"detect"` rule(s) declared in
+default.json (see `get_cluster_name()`), rather than a hardcoded list of hostnames/node names.
+Adding support for a new cluster is therefore just a matter of adding a new block (with a
+`"detect"` rule) to default.json -- no changes to this script are needed. Supported rule types:
+  - {"type": "cc_cluster"}: matches if the $CC_CLUSTER environment variable (set on Alliance
+    Canada/Digital Research Alliance login nodes) equals the cluster's name (or an explicit
+    "value" override). This is the most reliable signal where it's available.
+  - {"type": "scontrol_clustername"}: matches if `scontrol show config`'s ClusterName equals the
+    cluster's name (or an explicit "value" override). Works from a login node without a running
+    job. NOTE: a cluster's public name doesn't always match its ClusterName -- e.g. Trillium's
+    GPU and CPU partitions are two distinct SLURM clusters, with ClusterName "grillium" and
+    "trillium" respectively -- always use an explicit "value" when they differ, and prefer
+    "cc_cluster" where it's known to be unambiguous.
+  - {"type": "hostname_suffix", "value": "..."}: matches if `dnsdomainname` ends with "value".
+  - {"type": "sinfo_contains", "value": "..."}: matches if "value" is a substring of the node
+    list printed by `sinfo -h -o %N`. Useful as a last-resort fallback where no cc_cluster/
+    scontrol signal is available (e.g. UBC's "arc" cluster).
+A cluster may declare more than one rule (as a list); the first rule that matches wins. Clusters
+are evaluated in the order they appear in default.json, and within a cluster its rules are
+evaluated in the order listed -- there is no separate confidence-based reordering. So when there's
+any chance of two clusters' rules both matching the same machine (e.g. a broad sinfo_contains
+substring that could coincidentally appear elsewhere), list the more specific/reliable cluster
+and/or rule earlier in the file.
 
 Arguments:
 --script: used to change the default worker script. The scripts should be placed under ROOT_DIR directory e.g. <ROOT_DIR>/_run_python.sh
@@ -31,7 +52,6 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 import re
-import json
 
 
 # NOTE: SLURM argument/value pairs should be passed with whitespaces in between and not equal signs.
@@ -39,55 +59,118 @@ VERBOSE = True if "SUBMIT_JOB_VERBOSE" in os.environ else False
 # Paths
 EXP_DIR = Path(os.getcwd())
 ROOT_DIR = Path(__file__).parent.absolute()
+CONFIG_FILE = ROOT_DIR / "default.json"
 CMD_REPORT_FILE = ROOT_DIR / "cmd_report.json"
 REPORTS_DIR = EXP_DIR / "batch_job_reports"
 
+_default_json_cache = None
+
+
+def _load_default_json():
+    """Reads (and caches) default.json for the lifetime of this process."""
+    global _default_json_cache
+    if _default_json_cache is None:
+        with open(CONFIG_FILE) as f:
+            _default_json_cache = json.load(f)
+    return _default_json_cache
+
 
 def get_cluster_name():
-    """Identifies the cluster (PLAI/CC/ARC)
+    """Identifies the current cluster by evaluating the "detect" rule(s) declared for each
+    cluster in default.json (see the module docstring for the supported rule types).
 
     Raises:
-        Exception: If there is no SLURM environment
-        Exception: If the SLURM cluster machines are not recognized (neither of UBC or ComputeCanada-cedar)
+        Exception: If no cluster's detection rule(s) matched the current machine.
 
     Returns:
-        str: Cluster name
+        str: Cluster name (a top-level key of default.json)
     """
-    retcode, hostname = subprocess.getstatusoutput("dnsdomainname")
-    if hostname.endswith("narval.calcul.quebec"):
-        cluster = "narval"
-    elif hostname.endswith(".calculquebec.ca"):
-        cluster = "beluga"
-    elif hostname.endswith(".calcul.quebec"):
-        cluster = "rorqual"
-    elif hostname.endswith(".fir.alliancecan.ca"):
-        cluster = "fir"
-    else:
-        retcode, slurm_nodes = subprocess.getstatusoutput("sinfo -h -o %N")
-        cluster = None
-        if retcode == 0:
-            if "plai[" in slurm_nodes:
-                cluster = "plai"
-            elif "cdr[" in slurm_nodes:
-                cluster = "cedar"
-            elif "ubc-ml[" in slurm_nodes:
-                cluster = "submit-ml"
-            elif "se[" in slurm_nodes:
-                cluster = "arc"
-            elif "rack" in slurm_nodes:
-                cluster = "vulcan"
-            elif "trig[" in slurm_nodes:
-                cluster = "trillium"
-            else:
-                raise Exception(
-                    "Unexpected SLURM nodes. Make sure you are on either of borg (UBC), arc (UBC), submit-ml (UBC) cedar (ComputeCanada), narval (ComputeCanada), or beluga (ComputeCanada)."
-                )
+    json_data = _load_default_json()
+
+    # Lazily-computed, cluster-independent signals shared by every rule of a given type.
+    signals = {}
+
+    def cc_cluster():
+        if "cc_cluster" not in signals:
+            signals["cc_cluster"] = os.environ.get("CC_CLUSTER")
+        return signals["cc_cluster"]
+
+    def scontrol_clustername():
+        if "scontrol_clustername" not in signals:
+            name = None
+            retcode, out = subprocess.getstatusoutput("scontrol show config")
+            if retcode == 0:
+                m = re.search(r"^\s*ClusterName\s*=\s*(\S+)", out, re.MULTILINE)
+                if m:
+                    name = m.group(1)
+            signals["scontrol_clustername"] = name
+        return signals["scontrol_clustername"]
+
+    def dns_domain():
+        if "dns_domain" not in signals:
+            retcode, out = subprocess.getstatusoutput("dnsdomainname")
+            signals["dns_domain"] = out if retcode == 0 else None
+        return signals["dns_domain"]
+
+    def sinfo_nodes():
+        if "sinfo_nodes" not in signals:
+            retcode, out = subprocess.getstatusoutput("sinfo -h -o %N")
+            signals["sinfo_nodes"] = out if retcode == 0 else None
+        return signals["sinfo_nodes"]
+
+    def rule_matches(cluster_name, rule):
+        rtype = rule["type"]
+        if rtype == "cc_cluster":
+            value = cc_cluster()
+            return value is not None and value == rule.get("value", cluster_name)
+        elif rtype == "scontrol_clustername":
+            value = scontrol_clustername()
+            return value is not None and value == rule.get("value", cluster_name)
+        elif rtype == "hostname_suffix":
+            value = dns_domain()
+            return bool(value) and value.endswith(rule["value"])
+        elif rtype == "sinfo_contains":
+            value = sinfo_nodes()
+            return value is not None and rule["value"] in value
         else:
-            raise Exception("No SLURM environment found (sinfo failed).")
-    return cluster
+            raise ValueError(
+                "Unknown cluster 'detect' rule type {!r} for cluster {!r}.".format(
+                    rtype, cluster_name
+                )
+            )
+
+    # Try clusters in the order they appear in default.json, and each cluster's rules in the
+    # order listed. First match wins -- see the module docstring on ordering clusters/rules
+    # deliberately when there's any chance of an overlap.
+    for cluster_name, cluster_conf in json_data.items():
+        if cluster_name == "__all__":
+            continue
+        rules = cluster_conf.get("detect", [])
+        if isinstance(rules, dict):
+            rules = [rules]
+        for rule in rules:
+            if rule_matches(cluster_name, rule):
+                return cluster_name
+
+    raise Exception(
+        "Could not identify the current cluster from any 'detect' rule in {}. Checked "
+        "signals: CC_CLUSTER={!r}, scontrol ClusterName={!r}, dnsdomainname={!r}, "
+        "sinfo nodes={!r}. If this is a new cluster, add a block with a 'detect' rule for "
+        "it to default.json.".format(
+            CONFIG_FILE,
+            cc_cluster(),
+            scontrol_clustername(),
+            dns_domain(),
+            sinfo_nodes(),
+        )
+    )
 
 
-class SchedulerHandler:
+class SLURMHandler:
+    """Handles submitting a job to the SLURM scheduler."""
+
+    job_name_arguments = ["-J", "--job-name"]
+
     def __init__(self, args, flags, cluster_name):
         self.cluster_name = cluster_name
         self.args = args
@@ -98,32 +181,20 @@ class SchedulerHandler:
             self.flags.remove("--local")
             self.local = True
         else:
-            # The follownig arguments are required for the scheduler to work
-            # They will be set by the child class
-            self.submisison_command = None  # Job submission command e.g., sbatch
-            self.submit_job_script = (
-                ROOT_DIR / "_run.sh"
-            )  # Path to the script used to submit the job e.g., run.sh
-            self.reports_dir = REPORTS_DIR  # Path to the directory where the job reports will be stored
+            self.submisison_command = "sbatch"
+            self.submit_job_script = ROOT_DIR / "_run.sh"
+            self.reports_dir = REPORTS_DIR
             # Check the arguments and verify it meets the scheduler's requirements
             self.verify_args()
             # Resolve custom argument aliases
             self.resolve_aliases()
             assert (
                 self.submit_job_script.exists()
-            ), "Missing submit job sctipt at {}.".format(self.submit_job_script)
+            ), "Missing SLURM run script at {}.".format(self.submit_job_script)
             # Provide log file paths to the scheduler (if not already set by the user in command-line)
             self.set_logging_paths()
             if not self.reports_dir.exists():
                 self.reports_dir.mkdir(exist_ok=True)
-
-    @property
-    def scheduler_type(self):
-        raise NotImplementedError()
-
-    @property
-    def job_name_arguments(self):
-        raise NotImplementedError()
 
     def verify_args(self):
         # Check SLURM arguments and make sure the required ones are existing
@@ -137,13 +208,29 @@ class SchedulerHandler:
             self.submit_job_script = ROOT_DIR / self.args.pop("--script")
 
     def resolve_aliases(self):
-        raise NotImplementedError()
+        if "--cores" in self.args:
+            assert (
+                "--cpus-per-task" not in self.args
+            ), "Both --cores and --cpus-per-task were found in SLURM arguments."
+            self.args["--cpus-per-task"] = self.args.pop("--cores")
+        if "--gpu" in self.args:
+            assert (
+                "--gres" not in self.args
+            ), "Both --gpu and --gres were found in SLURM arguments."
+            self.args["--gres"] = "gpu:{}".format(self.args.pop("--gpu"))
 
     def set_logging_paths(self):
-        raise NotImplementedError()
+        # Provide log file paths to the scheduler (if not already set by the user in command-line)
+        if "--output" not in self.args and "-o" not in self.args:
+            if "--array" in self.args or "-a" in self.args:
+                self.args["--output"] = str(self.reports_dir / "results-%A_%a-%x.out")
+            else:
+                self.args["--output"] = str(self.reports_dir / "results-%j-%x.out")
 
     def export_args(self, **kwargs):
-        raise NotImplementedError()
+        for k, v in kwargs.items():
+            os.environ[k] = v
+        return "--export=ALL"
 
     def get_job_name(self):
         for k in self.job_name_arguments:
@@ -152,11 +239,7 @@ class SchedulerHandler:
 
     def print(self, script_args_str):
         ## Print scheduler arguments
-        print(
-            self.get_header(
-                "{} arguments ({})".format(self.scheduler_type, cluster_name)
-            )
-        )
+        print(self.get_header("SLURM arguments ({})".format(self.cluster_name)))
         # Extract job name from the arguments.
         job_name = self.get_job_name()
         print(self.get_output_line("Job name", job_name))
@@ -256,10 +339,21 @@ class SchedulerHandler:
 
     @staticmethod
     def jobid_from_stdout(stdout, stderr):
-        raise NotImplementedError()
+        prefix = "Submitted batch job "
+        msg = re.findall(prefix + r"[0-9]+", stdout)
+        assert (
+            len(msg) == 1
+        ), "Unexpected stdout from the sbatch command:\nSTDOUT:\n{}\n{}\nSTDERR:\n{}".format(
+            stdout, "-" * 10, stderr
+        )
+        msg = msg[0]
+        jobid = msg[len(prefix) :]
+        return jobid
 
     def resolve_multi_args(self):
-        raise NotImplementedError()
+        self.args = {
+            k: v[-1] if isinstance(v, list) else v for (k, v) in self.args.items()
+        }
 
     @staticmethod
     def get_header(header, width=30, dashes_width=15):
@@ -292,140 +386,7 @@ class SchedulerHandler:
         return "# {:20}: {}".format(k, v)
 
 
-class SLURMHandler(SchedulerHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.submisison_command = "sbatch"
-        self.submit_job_script = ROOT_DIR / "_run.sh"
-        assert (
-            self.submit_job_script.exists()
-        ), "Missing SLURM run sctipt at {}.".format(self.submit_job_script)
-
-    @property
-    def scheduler_type(self):
-        return "SLURM"
-
-    @property
-    def job_name_arguments(self):
-        return ["-J", "--job-name"]
-
-    def resolve_aliases(self):
-        if "--cores" in self.args:
-            assert (
-                "--cpus-per-task" not in self.args
-            ), "Both --cores and --cpus-per-task were found in SLURM arguments."
-            self.args["--cpus-per-task"] = self.args.pop("--cores")
-        if "--gpu" in self.args:
-            assert (
-                "--gres" not in self.args
-            ), "Both --gpu and --gres were found in SLURM arguments."
-            self.args["--gres"] = "gpu:{}".format(self.args.pop("--gpu"))
-
-    def set_logging_paths(self):
-        # Provide log file paths to the scheduler (if not already set by the user in command-line)
-        if "--output" not in self.args and "-o" not in self.args:
-            if "--array" in self.args or "-a" in self.args:
-                self.args["--output"] = str(self.reports_dir / "results-%A_%a-%x.out")
-            else:
-                self.args["--output"] = str(self.reports_dir / "results-%j-%x.out")
-
-    def export_args(self, **kwargs):
-        for k, v in kwargs.items():
-            os.environ[k] = v
-        res = "--export=ALL"
-        return res
-
-    @staticmethod
-    def jobid_from_stdout(stdout, stderr):
-        prefix = "Submitted batch job "
-        msg = re.findall(prefix + r"[0-9]+", stdout)
-        assert (
-            len(msg) == 1
-        ), "Unexpected stdout from the sbatch command:\nSTDOUT:\n{}\n{}\nSTDERR:\n{}".format(
-            stdout, "-" * 10, stderr
-        )
-        msg = msg[0]
-        jobid = msg[len(prefix) :]
-        return jobid
-
-    def resolve_multi_args(self):
-        self.args = {
-            k: v[-1] if isinstance(v, list) else v for (k, v) in self.args.items()
-        }
-
-
-class PBSHandler(SchedulerHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.submisison_command = "qsub"
-        self.submit_job_script = ROOT_DIR / "_run.sh"
-
-    @property
-    def scheduler_type(self):
-        return "PBS"
-
-    @property
-    def job_name_arguments(self):
-        return ["-N", "--job-name"]
-
-    def resolve_aliases(self):
-        pass
-
-    def set_logging_paths(self):
-        # Provide log file paths to the scheduler (if not already set by the user in command-line)
-        if "-o" not in self.args:
-            self.args["-o"] = self.reports_dir / "results.out"  # results-%j-%N.out
-        if "-e" not in self.args:
-            self.args["-e"] = self.reports_dir / "results.err"
-
-    def export_args(self, **kwargs):
-        for k, v in kwargs.items():
-            os.environ[k] = v
-        res = "-V"
-        return res
-
-    @staticmethod
-    def jobid_from_stdout(stdout, stderr):
-        assert (
-            len(stdout) > 0
-        ), "Unexpected stdout from the qsub command:\nSTDOUT:\n{}\n{}\nSTDERR:\n{}".format(
-            stdout, "-" * 10, stderr
-        )
-        jobid = stdout.split(".")[0]
-        return jobid
-
-    def resolve_multi_args(self):
-        self.args_updated = {
-            k: v[-1] if isinstance(v, list) else v
-            for (k, v) in self.args.items()
-            if k != "-l"
-        }
-        if "-l" not in self.args:
-            self.args = self.args_updated
-            return
-        self.args_updated["-l"] = self.args["-l"]
-        self.args = self.args_updated
-        ## Handle the -l arguments, removing the repeated items
-        if not isinstance(self.args["-l"], list):
-            self.args["-l"] = [self.args["-l"]]
-        # Put all the requested resources in a dictionary to remove duplicates
-        resource_dict = {}
-        for resource_list in self.args["-l"]:
-            for resource in resource_list.split(","):
-                k, v = resource.split("=", maxsplit=1)
-                resource_dict[k] = v
-        # Assemble the resource dictionary back to a string
-        resources_str = ",".join(
-            ["{}={}".format(k, v) for k, v in resource_dict.items()]
-        )
-        self.args["-l"] = resources_str
-
-
 def get_scheduler_handler(cluster_name, scheduler_args, scheduler_flags):
-    scheduler_machine_names = {
-        "SLURM": ["plai", "submit-ml", "cedar", "narval", "beluga", "arc", "vulcan", "rorqual", "fir", "trillium"],
-        "PBS": [],
-    }
     # Add default arguments (if not already set by the user in command-line)
     updated_args = default_scheduler_args(cluster_name=cluster_name)
     for k, v in scheduler_args.items():
@@ -439,20 +400,9 @@ def get_scheduler_handler(cluster_name, scheduler_args, scheduler_flags):
             )
     scheduler_args = updated_args
 
-    if cluster_name in scheduler_machine_names["SLURM"]:
-        return SLURMHandler(
-            args=scheduler_args, flags=scheduler_flags, cluster_name=cluster_name
-        )
-    elif cluster_name in scheduler_machine_names["PBS"]:
-        return PBSHandler(
-            args=scheduler_args, flags=scheduler_flags, cluster_name=cluster_name
-        )
-    else:
-        raise Exception(
-            "Schduler type for the current cluster ({}) is unknown.".format(
-                cluster_name
-            )
-        )
+    return SLURMHandler(
+        args=scheduler_args, flags=scheduler_flags, cluster_name=cluster_name
+    )
 
 
 def default_scheduler_args(cluster_name):
@@ -460,38 +410,43 @@ def default_scheduler_args(cluster_name):
         accordingly based on the json file at <ROOT_DIR>/default.json
 
     Raises:
-        Exception: If there is no SLURM environment
-        Exception: If the SLURM cluster machines are not recognized (neither of UBC or ComputeCanada-cedar)
+        ValueError: If the cluster has no matching block in default.json, or if the email
+            address is not set (neither in default.json nor via _MY_SCHEDULER_EMAIL).
 
     Returns:
         dict: a dictionary containing default SLURM arguments
     """
     DEFAULT_SCHEDULER_ARGS = {}
-    # Read the json config file
-    config_file_path = str(ROOT_DIR / "default.json")
-    with open(config_file_path) as json_file:
-        json_data = json.load(json_file)
+    json_data = _load_default_json()
+    if cluster_name not in json_data:
+        raise ValueError(
+            "No default.json entry for cluster {!r}. Add a block for it in {} "
+            "(with mail/time/account defaults and a 'detect' rule) before submitting "
+            "jobs there.".format(cluster_name, CONFIG_FILE)
+        )
     # Set the cluster-independent default parameters
     if "__all__" in json_data:
         d = json_data["__all__"]
         if "--mail-user" in d:
             assert (
                 d["--mail-user"] is not None and len(d["--mail-user"]) > 0
-            ), "The email address is not set in {}".format(config_file_path)
+            ), "The email address is not set in {}".format(CONFIG_FILE)
         for k, v in d.items():
             DEFAULT_SCHEDULER_ARGS[k] = v
-    # Add the cluster-specific parameters to the default parameters
+    # Add the cluster-specific parameters to the default parameters, skipping the "detect" rule(s)
     for k, v in json_data[cluster_name].items():
+        if k == "detect":
+            continue
         DEFAULT_SCHEDULER_ARGS[k] = v
     if "--mail-user" not in DEFAULT_SCHEDULER_ARGS:
-        raise ValueError("The email address is not set in {}".format(config_file_path))
+        raise ValueError("The email address is not set in {}".format(CONFIG_FILE))
     mail_user_placeholder = "<YOUR_EMAIL_GOES_HERE>"
     if DEFAULT_SCHEDULER_ARGS["--mail-user"] == mail_user_placeholder:
         mail_adr = os.environ.get("_MY_SCHEDULER_EMAIL", None)
         if mail_adr is None:
             raise ValueError(
                 "The email address is not set in {} and was not set as an "
-                "enironment variable in _MY_SCHEDULER_EMAIL".format(config_file_path)
+                "environment variable in _MY_SCHEDULER_EMAIL".format(CONFIG_FILE)
             )
         DEFAULT_SCHEDULER_ARGS["--mail-user"] = mail_adr
     return DEFAULT_SCHEDULER_ARGS
@@ -509,8 +464,6 @@ def arglist2dicts(arg_list):
         args: a dictionary of arguments. If an argument appears multiple times, it will be stored as the key mapped to the list of values.
         flags: a list of flags
     """
-    # arg_list = map(lambda x: x.split("="), arg_list)
-    # arg_list = [x for item in arg_list for x in item]
     args = {}
     flags = []
     i = 0

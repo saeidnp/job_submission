@@ -1,65 +1,69 @@
 {
   "__all__": {
-  },
-  "plai": {
     "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
     "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
+    "--time":       "12:00:00"
+  },
+  "ubc-cs": {
+    "detect":       {"type": "scontrol_clustername", "value": "archipelago"},
     "--partition":  "plai"
   },
-  "submit-ml": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
-    "--partition":  "ubcml"
-  },
-  "cedar": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
-    "--account":    "rrg-fwood"
-  },
   "narval": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
+    "detect": [
+      {"type": "cc_cluster"},
+      {"type": "scontrol_clustername"},
+      {"type": "hostname_suffix", "value": "narval.calcul.quebec"}
+    ],
     "--account":    "rrg-fwood"
-  },
-  "beluga": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
-    "--account":    "rrg-kevinlb"
   },
   "arc": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
+    "detect":       {"type": "sinfo_contains", "value": "se["},
     "--account":    "st-fwood-1-gpu",
     "--nodes":      1
   },
   "vulcan": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
+    "detect": [
+      {"type": "scontrol_clustername"},
+      {"type": "sinfo_contains", "value": "rack"}
+    ],
     "--account":    "aip-fwood"
   },
   "rorqual": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
+    "detect": [
+      {"type": "cc_cluster"},
+      {"type": "scontrol_clustername"},
+      {"type": "hostname_suffix", "value": ".calcul.quebec"}
+    ],
     "--account":    "rrg-fwood"
   },
   "fir": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
+    "detect": [
+      {"type": "cc_cluster"},
+      {"type": "scontrol_clustername"},
+      {"type": "hostname_suffix", "value": ".fir.alliancecan.ca"}
+    ],
     "--account":    "rrg-kevinlb"
   },
+  "killarney": {
+    "detect": [
+      {"type": "cc_cluster"},
+      {"type": "scontrol_clustername"},
+      {"type": "sinfo_contains", "value": "kn["}
+    ],
+    "--account":    "aip-fwood"
+  },
   "trillium": {
-    "--mail-user":  "<YOUR_EMAIL_GOES_HERE>",
-    "--mail-type":  "END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT",
-    "--time":       "12:00:00",
+    "detect": [
+      {"type": "scontrol_clustername", "value": "grillium"},
+      {"type": "sinfo_contains", "value": "trig["}
+    ],
     "--account":    "rrg-fwood"
+  },
+  "trillium-cpu": {
+    "detect": [
+      {"type": "scontrol_clustername", "value": "trillium"},
+      {"type": "sinfo_contains", "value": "tri["}
+    ],
+    "--account":    "def-fwood"
   }
 }

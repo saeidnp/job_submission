@@ -49,9 +49,9 @@ This is the job submission command format
 ```
 submit_job <JOB_SUBMISSION_ARGS> <SLURM_ARGS> -- <WORKER_ARGS>
 ```
-It automatically detects the cluster you're on, sets the default arguments for that cluster (currently PLAI and cedar clusters are supported) and submits a SLURM job with `<SLURM_ARGS>` configuration. The submitted job will run one of the scripts in [batch_job_files](batch_job_files/) (we call that "worker script") and `<WORKER_ARGS>` are carried over to this worker script.
+It automatically detects the cluster you're on (based on the `detect` rule declared for each cluster in [default.json](default.json)), sets the default arguments for that cluster, and submits a SLURM job that runs [`_run.sh`](_run.sh) (we call that the "worker script") with `<WORKER_ARGS>` carried over to it.
 - `<JOB_SUBMISSION_ARGS>` are the arguments to the job submission script itself ([submit_job.py](submit_job.py)). Here is the list of supported arguments:
-    - `--script <path>`: specifies the worker script. default: [_run_python.sh](batch_job_files/_run_python.sh)
+    - `--script <path>`: specifies an alternative worker script to use instead of the default [`_run.sh`](_run.sh). `<path>` is resolved relative to this repo's own directory (where `submit_job.py` lives), not your current working directory.
 - `<SLURM_ARGS>` are SLURM arguments. These commands are directly passed to the `sbatch` command (see [here](https://slurm.schedmd.com/sbatch.html) for the list of sbatch arguments). Additionally, This script supports the following config aliases:
     - `--cores <N>` (alias for `--cpus-per-task`): specifies the number of CPU cores needed.
     - `--gpu <N>` (alias for `--gres=gpu:<N>`): specifies the number of GPUs needed.
@@ -63,3 +63,33 @@ It automatically detects the cluster you're on, sets the default arguments for t
     - `-w <node_name>`: specifies the node name to submit the job to.
     - `--array <first_idx>-<last_idx>`: submits an array job with indices in [first_idx, last_idx].
 - `<WORKER_ARGS>` are the arguments to the user script. These arguments will be directly passed to the worker script in an environment variable called `_MY_CMD` (see the [`_run.sh`](_run.sh) file.)
+
+### How the cluster is detected / adding a new cluster
+
+Each cluster's block in [default.json](default.json) declares one or more `"detect"` rules —
+this is how `submit_job`/`report_job` figure out which cluster (and therefore which defaults)
+apply on the machine they're run from, without any cluster-specific code. Supported rule types:
+
+- `{"type": "cc_cluster"}`: matches if the `$CC_CLUSTER` environment variable (set on Alliance
+  Canada/Digital Research Alliance login nodes) equals the cluster's name. Add an explicit
+  `"value": "..."` to match against something other than the cluster's own key.
+- `{"type": "scontrol_clustername"}`: matches if `scontrol show config`'s `ClusterName` equals
+  the cluster's name (or an explicit `"value"`). Works from a login node, no job needs to be
+  running. __Careful__: a cluster's public name doesn't always match its actual `ClusterName` —
+  e.g. Trillium's GPU and CPU partitions are two distinct SLURM clusters, with `ClusterName`s
+  `grillium` and `trillium` respectively — pass an explicit `"value"` whenever they differ.
+- `{"type": "hostname_suffix", "value": "..."}`: matches if `dnsdomainname` ends with `"value"`.
+- `{"type": "sinfo_contains", "value": "..."}`: matches if `"value"` is a substring of the node
+  list printed by `sinfo -h -o %N`. Useful as a last-resort fallback where no `cc_cluster`/
+  `scontrol` signal is available (e.g. UBC's `arc` cluster).
+
+A cluster's `"detect"` value can be a single rule or a list of rules. Clusters are tried in the
+order they appear in `default.json`, and within a cluster its rules are tried in the order
+listed — the first rule (for any cluster) that matches wins. There's no separate
+confidence-based reordering, so if there's ever a chance that two clusters' rules could both
+match the same machine (e.g. a broad `sinfo_contains` substring that could coincidentally show up
+elsewhere), list the more specific/reliable cluster and/or rule earlier in the file.
+
+__To add a new cluster__: add a new top-level block to `default.json` with its scheduler defaults
+(mail/time/account/etc., same shape as the existing blocks) and a `"detect"` rule. That's it — no
+changes to `submit_job.py` are needed.
